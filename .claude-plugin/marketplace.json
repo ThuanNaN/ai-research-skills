@@ -1,6 +1,9 @@
 {
   "name": "ai-research-skills",
-  "owner": { "name": "ThuanNaN" },
+  "description": "Skills and hooks for AI/ML research with a coding agent.",
+  "owner": {
+    "name": "ThuanNaN"
+  },
   "plugins": [
     {
       "name": "ai-research",
