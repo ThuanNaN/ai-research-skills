@@ -9,6 +9,7 @@ from . import paths
 _HEADER = re.compile(r"^Frozen: (\S+) \(sha256 ([0-9a-f]{64})\)\s*$")
 _PREFIX = "Frozen: "
 _AMENDMENT = "## Amendment"
+_AMENDMENT_LINE = re.compile(r"^## Amendment \d{4}-\d{2}-\d{2}\s*$")
 
 
 def plan_path(root, name):
@@ -28,7 +29,7 @@ def _body(lines):
     """The frozen text: after the header, before the first amendment."""
     body = []
     for line in lines:
-        if line.startswith(_AMENDMENT):
+        if _AMENDMENT_LINE.match(line):
             break
         body.append(line)
     return "\n".join(body)

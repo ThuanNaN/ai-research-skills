@@ -1,4 +1,5 @@
 """Append-only decision log: research/decisions.md."""
+import fcntl
 from datetime import date as _date
 
 from . import paths
@@ -20,8 +21,10 @@ def append(root, title, why, supersedes=None, date=None):
     entry = f"\n{heading}\nWhy: {why}\nSupersedes: {_one_line(supersedes) if supersedes else '—'}\n"
     path = paths.research_dir(root) / paths.DECISIONS
     path.parent.mkdir(parents=True, exist_ok=True)
-    existing = path.read_text(encoding="utf-8", errors="replace") if path.exists() else ""
-    with open(path, "a", encoding="utf-8") as f:
+    with open(path, "a+", encoding="utf-8", errors="replace") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        f.seek(0)
+        existing = f.read()
         if not existing:
             f.write(HEADER)
         elif not existing.endswith("\n"):

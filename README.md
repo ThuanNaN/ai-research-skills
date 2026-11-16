@@ -88,8 +88,8 @@ that fired. To turn enforcement off for a project, set `enforce: false`.
   it are resolved against the local directory.
 - The eval-only check sees only the command line. A training config file that
   points at an eval-only path is not caught.
-- Process liveness is checked only for runs on the local host. Runs on other
-  machines are flagged stale by age alone.
+- Process liveness is checked only for runs on the local host (hostnames match
+  without case or domain). Runs on other machines are flagged stale by age alone.
 - If `rules.md` cannot be parsed, the guard blocks Bash, Write and Edit until
   it is fixed. Editing `rules.md` itself stays possible.
 - The state lives on the machine where the agent runs. Nothing is written to

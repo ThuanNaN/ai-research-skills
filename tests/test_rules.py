@@ -19,7 +19,7 @@ def test_missing_rules_file_disables_enforcement(project):
     assert load(project).enforce is False
 
 
-@pytest.mark.parametrize("fm", ["enforce: maybe", "protected_paths:\n  - unquoted", "bogus_key: true", "enforce: true"])  # last: no closing ---
+@pytest.mark.parametrize("fm", ["enforce: maybe", "protected_paths:\n  - 'unclosed", "bogus_key: true", "enforce: true"])  # last: no closing ---
 def test_malformed_front_matter_raises(project, fm):
     closing = "" if fm == "enforce: true" else "\n---\n"
     (project / "research/rules.md").write_text("---\n" + fm + closing)

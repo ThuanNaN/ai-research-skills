@@ -1,4 +1,5 @@
 """Generated summary of the project state: research/STATUS.md and session context."""
+import json
 import os
 import socket
 from datetime import datetime, timezone
@@ -17,10 +18,17 @@ def _short(text, width=80):
 
 
 def _parse_ts(ts):
-    try:
-        return datetime.strptime(ts, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
-    except (TypeError, ValueError):
+    """ISO 8601 time; `Z` or an offset, and no offset means UTC."""
+    if not isinstance(ts, str):
         return None
+    text = ts.strip()
+    if text.endswith(("Z", "z")):
+        text = text[:-1] + "+00:00"
+    try:
+        when = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    return when if when.tzinfo else when.replace(tzinfo=timezone.utc)
 
 
 def _age(ts, now):
@@ -33,11 +41,32 @@ def _age(ts, now):
     return hours, f"updated {int(hours)}h ago"
 
 
+def _same_host(host):
+    """Hostnames compared without case and domain: gpu1 and GPU1.lab.example.org match."""
+    def short(name):
+        return str(name or "").split(".")[0].lower()
+    return bool(host) and short(host) == short(socket.gethostname())
+
+
 def _process_missing(run):
     pid = run.get("pid")
-    if run.get("host") != socket.gethostname() or not isinstance(pid, int) or isinstance(pid, bool):
+    if not _same_host(run.get("host")) or not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
         return False
-    return os.path.isdir("/proc") and not os.path.exists(f"/proc/{pid}")
+    try:
+        os.kill(pid, 0)  # signal 0 checks existence on Linux and macOS alike
+    except ProcessLookupError:
+        return True
+    except (PermissionError, OSError):
+        return False
+    return False
+
+
+def _stale_flag(hours, limit):
+    if hours is None:
+        return "STALE — no update time recorded, check whether it is still running"
+    if hours > limit:
+        return f"STALE — no update for {int(hours)}h (limit {limit}h), check whether it is still running"
+    return None
 
 
 def _where(run):
@@ -72,9 +101,7 @@ def sections(root, now=None):
         if run.get("status") != "started":
             continue
         hours, age = _age(run.get("updated"), now)
-        flags = []
-        if hours is None or hours > rule_set.stale_after_hours:
-            flags.append("STALE — no update recorded, check whether it is still running")
+        flags = [f for f in (_stale_flag(hours, rule_set.stale_after_hours),) if f]
         if _process_missing(run):
             flags.append("PROCESS NOT FOUND on this host")
         running.append(f"{_run_line(run_id, run)} — {age}" + "".join(f" — {f}" for f in flags))
@@ -82,8 +109,14 @@ def sections(root, now=None):
 
     waiting = [f"- {q['id']} — {q['title']}" + (f" (verdict: {q['verdict']})" if q["verdict"] != questions.EMPTY else "")
                for q in qs if q["status"] == "awaiting-approval"]
-    waiting += [f"{_run_line(run_id, run)} — planned, not started"
-                for run_id, run in all_runs.items() if run.get("status") == "planned"]
+    for run_id, run in all_runs.items():
+        if run.get("status") != "planned":
+            continue
+        hours, age = _age(run.get("updated"), now)
+        line = f"{_run_line(run_id, run)} — planned, not started ({age.replace('updated ', '')})"
+        if hours is None or hours > rule_set.stale_after_hours:
+            line += " — STALE — still waiting; start it or record it as killed"
+        waiting.append(line)
     out.append(("Awaiting your approval", waiting))
 
     out.append(("Open questions", [
@@ -102,7 +135,7 @@ def sections(root, now=None):
         metrics = run.get("metrics")
         tail = ""
         if isinstance(metrics, dict) and metrics:
-            tail = " — " + ", ".join(f"{k}={v}" for k, v in metrics.items())
+            tail = " — " + ", ".join(f"{_short(k, 30)}={_short(v, 40)}" for k, v in list(metrics.items())[:8])
         finished.append(f"{_run_line(run_id, run)} — {run['status']}{tail}")
     out.append(("Recently finished", finished))
 
@@ -123,7 +156,8 @@ def build(root, now=None):
     now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     head = f"# Research status\nGenerated {now.strftime('%Y-%m-%d %H:%M')} UTC — do not edit"
     body = _render(sections(root, now))
-    return head + ("\n\n" + body if body else "\n\nNothing recorded yet.") + "\n"
+    rules_part = "## Rules\n- " + _rules_summary(*_load_rules(root)) + " Details: research/rules.md"
+    return head + "\n\n" + rules_part + ("\n\n" + body if body else "\n\nNothing recorded yet.") + "\n"
 
 
 def write(root, now=None):
@@ -133,24 +167,31 @@ def write(root, now=None):
     return path
 
 
+def _rules_summary(rule_set, error):
+    if error:
+        return f"research/rules.md cannot be parsed ({error}); the guard blocks tool calls until it is fixed."
+    if not rule_set.enforce:
+        return "Hook enforcement is off for this project."
+    return (f"Enforced by hooks: {len(rule_set.protected_paths)} protected path pattern(s), "
+            f"{len(rule_set.eval_only_paths)} eval-only path(s) barred from training commands, "
+            f"{len(rule_set.protected_processes)} protected process(es); frozen plans, decisions.md, "
+            f"questions.md and runs.jsonl change only through the research-state commands. "
+            f"Runs are flagged STALE after {rule_set.stale_after_hours}h without an update.")
+
+
 def _rules_block(root):
     rule_set, error = _load_rules(root)
     lines = ["## Standing rules"]
-    if error:
-        lines.append(f"research/rules.md cannot be parsed ({error}); the guard blocks tool calls until it is fixed.")
-        return "\n".join(lines)
-    prose = rule_set.prose.strip()
+    prose = "" if error else rule_set.prose.strip()
     if prose:
         lines.append(prose)
-    if rule_set.enforce:
-        lines.append(
-            f"Enforced by hooks: {len(rule_set.protected_paths)} protected path pattern(s), "
-            f"{len(rule_set.eval_only_paths)} eval-only path(s) barred from training commands, "
-            f"{len(rule_set.protected_processes)} protected process(es); frozen plans, decisions.md, "
-            "questions.md and runs.jsonl change only through the research-state commands.")
-    else:
-        lines.append("Hook enforcement is off for this project.")
+    lines.append(_rules_summary(rule_set, error))
     return "\n".join(lines)
+
+
+def encoded_size(text):
+    """Bytes the text takes inside the hook's JSON output (escapes and UTF-8 included)."""
+    return len(json.dumps(text, ensure_ascii=False).encode("utf-8"))
 
 
 def session_context(root, limit=9000, now=None):
@@ -175,13 +216,16 @@ def session_context(root, limit=9000, now=None):
 
     text = assemble()
     for title in DROP_ORDER:
-        if len(text) <= limit:
+        if encoded_size(text) <= limit:
             break
         if any(t == title for t, _ in parts):
             parts = [(t, lines) for t, lines in parts if t != title]
             omitted.append(title)
             text = assemble()
-    if len(text) > limit:
+    if encoded_size(text) > limit:
         tail = "\n…(cut for length)\n\n" + POINTER + "\n"
-        text = text[: limit - len(tail)] + tail
+        keep = len(text)
+        while keep > 0 and encoded_size(text[:keep] + tail) > limit:
+            keep -= max(1, (encoded_size(text[:keep] + tail) - limit) // 3)
+        text = text[:max(keep, 0)] + tail
     return text

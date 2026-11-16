@@ -44,6 +44,47 @@ def _quoted(text, lineno):
     return value
 
 
+def _single_quoted(text, lineno):
+    """A YAML single-quoted string: '' inside stands for one quote."""
+    out, i = [], 1
+    while i < len(text):
+        if text[i] == "'":
+            if text[i + 1:i + 2] == "'":
+                out.append("'")
+                i += 2
+                continue
+            _strip_comment(text[i + 1:], lineno)
+            return "".join(out)
+        out.append(text[i])
+        i += 1
+    raise RulesError(f"line {lineno}: unclosed single-quoted string {text!r}")
+
+
+def _item(text, lineno):
+    """One list item: double-quoted, single-quoted or plain text."""
+    text = text.strip()
+    if text.startswith('"'):
+        return _quoted(text, lineno)
+    if text.startswith("'"):
+        return _single_quoted(text, lineno)
+    value = re.split(r"\s#", text, maxsplit=1)[0].strip()
+    if not value or value.startswith("#"):
+        raise RulesError(f"line {lineno}: empty list item")
+    return value
+
+
+def _inline_list(text, lineno):
+    """`[]` or a JSON-style list of double-quoted strings."""
+    try:
+        value, end = json.JSONDecoder().raw_decode(text)
+    except ValueError as exc:
+        raise RulesError(f"line {lineno}: bad inline list ({exc}); write [\"a\", \"b\"]") from None
+    if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+        raise RulesError(f"line {lineno}: an inline list holds double-quoted strings only, got {text!r}")
+    _strip_comment(text[end:], lineno)
+    return value
+
+
 def parse(text):
     rules = Rules()
     lines = text.lstrip("\ufeff").splitlines()
@@ -71,14 +112,16 @@ def parse(text):
         if stripped.startswith("- ") or stripped == "-":
             if current is None or not raw[:1].isspace():
                 raise RulesError(f"line {lineno}: list item outside a list")
-            getattr(rules, current).append(_quoted(stripped[1:], lineno))
+            getattr(rules, current).append(_item(stripped[1:], lineno))
             continue
         if raw[:1].isspace() or ":" not in stripped:
             raise RulesError(f"line {lineno}: expected 'key: value', got {stripped!r}")
         key, _, rest = stripped.partition(":")
         key, rest = key.strip(), rest.strip()
         current = None
-        if key in LIST_KEYS:
+        if key in LIST_KEYS and rest.startswith("["):
+            setattr(rules, key, _inline_list(rest, lineno))
+        elif key in LIST_KEYS:
             _strip_comment(rest, lineno)
             setattr(rules, key, [])
             current = key
@@ -109,4 +152,6 @@ def load(root):
         text = path.read_text(encoding="utf-8", errors="replace")
     except FileNotFoundError:
         return Rules(enforce=False)
+    except OSError as exc:  # a directory, no permission: still an answer, not a crash
+        raise RulesError(f"cannot read it ({exc.strerror or exc})") from None
     return parse(text)

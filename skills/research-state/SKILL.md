@@ -54,7 +54,7 @@ Every command refreshes `STATUS.md`.
 - **A job that needs approval first** → `run plan`, then `run start --id` once
   approved.
 - **Each time you check a job** → `run note` with step and ETA, or `run finish`
-  / `run fail` / `run kill`. A run with no update for 24 hours shows as STALE.
+  / `run fail` / `run kill`. A run with no update for `stale_after_hours` (24 by default, set in rules.md) shows as STALE.
 - **A research question starts, waits for the user, or is answered** → `rq`.
   Put report paths and run ids in `--evidence`. A verdict of "inconclusive" is
   a verdict; record it as such.

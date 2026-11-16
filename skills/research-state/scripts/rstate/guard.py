@@ -25,6 +25,8 @@ KILLERS = {"kill", "pkill", "killall"}
 READERS = {"grep", "rg", "egrep", "fgrep", "cat", "head", "tail", "less", "more", "wc", "ls", "stat", "file",
            "diff", "cmp", "find", "git", "echo", "printf", "md5sum", "sha256sum", "du", "tree", "awk", "sed",
            "cut", "sort", "uniq", "jq", "cp", "mv", "rsync", "scp", "tar", "zip", "unzip"}
+# A process running one of these merely shows a file; its pid is not the protected job.
+VIEWERS = READERS | {"vi", "vim", "nvim", "nano", "emacs", "code", "watch", "tmux", "screen", "nvidia-smi", "htop", "top"}
 LOG_COMMANDS = {paths.DECISIONS: "decide", paths.QUESTIONS: "rq", paths.RUNS: "run"}
 OP_CHARS = set(";|&()<>")
 SEP_CHARS = set(";|&()`")
@@ -52,6 +54,14 @@ def _deny(reason):
 
 def _ask(reason):
     return Decision("ask", reason + SUFFIX)
+
+
+def _runs_as(cmdline, name):
+    """True when a process command line is the protected job, not a viewer of its files."""
+    words = cmdline.split()
+    if not words or os.path.basename(words[0]) in VIEWERS:
+        return False
+    return name in cmdline
 
 
 def _cmdline(pid):
@@ -426,7 +436,7 @@ def _check_kill(command, commands, rule_set):
         if name in command:
             return _deny(f'"{name}" is a protected process and must not be killed.')
         for args, _words in killers:
-            if any(name in _cmdline(int(a)) for a in args if a.isascii() and a.isdigit()):
+            if any(_runs_as(_cmdline(int(a)), name) for a in args if a.isascii() and a.isdigit()):
                 return _deny(f'"{name}" is a protected process and must not be killed.')
     return None
 

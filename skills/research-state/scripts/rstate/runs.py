@@ -1,6 +1,7 @@
 """Append-only event log of runs: research/runs.jsonl."""
 import fcntl
 import json
+import os
 import socket
 import subprocess
 from datetime import datetime, timezone
@@ -29,7 +30,10 @@ def git_info(cwd):
     if _git(cwd, "rev-parse", "--is-inside-work-tree") != "true":
         return None, None
     commit = _git(cwd, "rev-parse", "HEAD")
-    status = _git(cwd, "status", "--porcelain", "--", ":(top)", ":(top,exclude)research")
+    top = _git(cwd, "rev-parse", "--show-toplevel")
+    research = os.path.realpath(os.path.join(str(cwd), paths.RESEARCH))
+    rel = os.path.relpath(research, os.path.realpath(top)) if top else paths.RESEARCH
+    status = _git(cwd, "status", "--porcelain", "--", ":(top)", f":(top,exclude){rel}")
     return commit, (bool(status) if status is not None else None)
 
 

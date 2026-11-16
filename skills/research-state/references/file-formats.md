@@ -25,8 +25,10 @@ protected_processes:
 Grammar (a small subset of YAML, parsed without dependencies):
 
 - `key: value` where the value is `true`, `false` or a whole number.
-- `key:` followed by indented `- "double-quoted string"` items.
-- Strings use JSON escapes, so a regex backslash is written `\\`.
+- `key:` followed by indented `- item` lines. An item is plain text (a ` #`
+  starts a comment), `'single-quoted'` (`''` for a quote) or
+  `"double-quoted"` with JSON escapes, where a regex backslash is written `\\`.
+- `key: []` for an empty list, or `key: ["a", "b"]` with double-quoted items.
 - `#` starts a comment. Unknown keys are an error.
 
 | Key | Meaning |

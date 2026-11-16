@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """research-state CLI: the only writer of the structured files in research/."""
 import argparse
+import math
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -17,13 +19,15 @@ IGNORE_LINE = "research/STATUS.md"
 
 
 def _number(text):
+    """int or float when the text is one; NaN and infinity stay text (JSON has no such numbers)."""
     try:
         return int(text)
     except ValueError:
         try:
-            return float(text)
+            value = float(text)
         except ValueError:
             return text
+        return value if math.isfinite(value) else text
 
 
 def cmd_init(root, args):
@@ -38,6 +42,8 @@ def cmd_init(root, args):
         sep = "" if not text or text.endswith("\n") else "\n"
         ignore.write_text(f"{text}{sep}{IGNORE_LINE}\n", encoding="utf-8")
     print(f"research state ready in {folder}")
+    if Path(os.path.realpath(Path.cwd())) != Path(os.path.realpath(root)):
+        print(f"(placed at the repository root; pass --root to put it in {Path.cwd()} instead)")
 
 
 def cmd_status(root, args):

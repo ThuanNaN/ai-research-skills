@@ -7,7 +7,11 @@ from _common import project_root
 
 
 def emit(text):
-    print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}}))
+    # Raw UTF-8, not \\u escapes: escapes would triple the size of non-English rules.
+    data = json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}},
+                      ensure_ascii=False)
+    sys.stdout.buffer.write(data.encode("utf-8") + b"\n")
+    sys.stdout.flush()
 
 
 def main():
