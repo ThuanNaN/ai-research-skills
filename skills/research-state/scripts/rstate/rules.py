@@ -1,0 +1,157 @@
+"""Parser for research/rules.md: enforced front matter plus prose."""
+import json
+import re
+from dataclasses import dataclass, field
+
+from . import paths
+
+LIST_KEYS = ("protected_paths", "eval_only_paths", "train_command_patterns", "protected_processes")
+BOOL_KEYS = ("enforce",)
+INT_KEYS = ("stale_after_hours",)
+
+
+class RulesError(Exception):
+    """research/rules.md front matter cannot be parsed."""
+
+
+@dataclass
+class Rules:
+    enforce: bool = True
+    protected_paths: list = field(default_factory=list)
+    eval_only_paths: list = field(default_factory=list)
+    train_command_patterns: list = field(default_factory=list)
+    protected_processes: list = field(default_factory=list)
+    stale_after_hours: int = 24
+    prose: str = ""
+
+
+def _strip_comment(rest, lineno):
+    rest = rest.strip()
+    if rest and not rest.startswith("#"):
+        raise RulesError(f"line {lineno}: unexpected text {rest!r}")
+
+
+def _quoted(text, lineno):
+    """Decode a leading double-quoted string; the rest may only be a comment."""
+    text = text.strip()
+    if not text.startswith('"'):
+        raise RulesError(f"line {lineno}: expected a double-quoted string, got {text!r}")
+    try:
+        value, end = json.JSONDecoder().raw_decode(text)
+    except ValueError as exc:
+        raise RulesError(f"line {lineno}: bad string ({exc})") from None
+    _strip_comment(text[end:], lineno)
+    return value
+
+
+def _single_quoted(text, lineno):
+    """A YAML single-quoted string: '' inside stands for one quote."""
+    out, i = [], 1
+    while i < len(text):
+        if text[i] == "'":
+            if text[i + 1:i + 2] == "'":
+                out.append("'")
+                i += 2
+                continue
+            _strip_comment(text[i + 1:], lineno)
+            return "".join(out)
+        out.append(text[i])
+        i += 1
+    raise RulesError(f"line {lineno}: unclosed single-quoted string {text!r}")
+
+
+def _item(text, lineno):
+    """One list item: double-quoted, single-quoted or plain text."""
+    text = text.strip()
+    if text.startswith('"'):
+        return _quoted(text, lineno)
+    if text.startswith("'"):
+        return _single_quoted(text, lineno)
+    value = re.split(r"\s#", text, maxsplit=1)[0].strip()
+    if not value or value.startswith("#"):
+        raise RulesError(f"line {lineno}: empty list item")
+    return value
+
+
+def _inline_list(text, lineno):
+    """`[]` or a JSON-style list of double-quoted strings."""
+    try:
+        value, end = json.JSONDecoder().raw_decode(text)
+    except ValueError as exc:
+        raise RulesError(f"line {lineno}: bad inline list ({exc}); write [\"a\", \"b\"]") from None
+    if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+        raise RulesError(f"line {lineno}: an inline list holds double-quoted strings only, got {text!r}")
+    _strip_comment(text[end:], lineno)
+    return value
+
+
+def parse(text):
+    rules = Rules()
+    lines = text.lstrip("\ufeff").splitlines()
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    if not lines or lines[0].strip() != "---":
+        known = LIST_KEYS + BOOL_KEYS + INT_KEYS
+        for lineno, line in enumerate(lines, start=1):
+            if line.strip() == "---" or line.split(":", 1)[0] in known and ":" in line:
+                raise RulesError(
+                    f"line {lineno}: looks like front matter, but the file does not start with a '---' line")
+        rules.prose = "\n".join(lines) + ("\n" if lines else "")
+        return rules
+    try:
+        end = next(i for i in range(1, len(lines)) if lines[i].strip() == "---")
+    except StopIteration:
+        raise RulesError("front matter is not closed with a '---' line") from None
+    rules.prose = "\n".join(lines[end + 1:]) + ("\n" if len(lines) > end + 1 else "")
+
+    current = None
+    for lineno, raw in enumerate(lines[1:end], start=2):
+        stripped = raw.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if stripped.startswith("- ") or stripped == "-":
+            if current is None or not raw[:1].isspace():
+                raise RulesError(f"line {lineno}: list item outside a list")
+            getattr(rules, current).append(_item(stripped[1:], lineno))
+            continue
+        if raw[:1].isspace() or ":" not in stripped:
+            raise RulesError(f"line {lineno}: expected 'key: value', got {stripped!r}")
+        key, _, rest = stripped.partition(":")
+        key, rest = key.strip(), rest.strip()
+        current = None
+        if key in LIST_KEYS and rest.startswith("["):
+            setattr(rules, key, _inline_list(rest, lineno))
+        elif key in LIST_KEYS:
+            _strip_comment(rest, lineno)
+            setattr(rules, key, [])
+            current = key
+        elif key in BOOL_KEYS:
+            word = rest.split("#", 1)[0].strip()
+            if word not in ("true", "false"):
+                raise RulesError(f"line {lineno}: {key} must be true or false, got {word!r}")
+            setattr(rules, key, word == "true")
+        elif key in INT_KEYS:
+            word = rest.split("#", 1)[0].strip()
+            if not word.isdigit():
+                raise RulesError(f"line {lineno}: {key} must be a whole number, got {word!r}")
+            setattr(rules, key, int(word))
+        else:
+            raise RulesError(f"line {lineno}: unknown key {key!r}")
+    for pattern in rules.train_command_patterns:
+        try:
+            re.compile(pattern)
+        except re.error as exc:
+            raise RulesError(f"train_command_patterns: {pattern!r} is not a valid regular expression ({exc})") from None
+    return rules
+
+
+def load(root):
+    """Rules for a project. A missing rules.md means nothing is enforced."""
+    path = paths.research_dir(root) / paths.RULES
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except FileNotFoundError:
+        return Rules(enforce=False)
+    except OSError as exc:  # a directory, no permission: still an answer, not a crash
+        raise RulesError(f"cannot read it ({exc.strerror or exc})") from None
+    return parse(text)
