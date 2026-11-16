@@ -46,9 +46,16 @@ def _quoted(text, lineno):
 
 def parse(text):
     rules = Rules()
-    lines = text.splitlines()
+    lines = text.lstrip("\ufeff").splitlines()
+    while lines and not lines[0].strip():
+        lines.pop(0)
     if not lines or lines[0].strip() != "---":
-        rules.prose = text
+        known = LIST_KEYS + BOOL_KEYS + INT_KEYS
+        for lineno, line in enumerate(lines, start=1):
+            if line.strip() == "---" or line.split(":", 1)[0] in known and ":" in line:
+                raise RulesError(
+                    f"line {lineno}: looks like front matter, but the file does not start with a '---' line")
+        rules.prose = "\n".join(lines) + ("\n" if lines else "")
         return rules
     try:
         end = next(i for i in range(1, len(lines)) if lines[i].strip() == "---")

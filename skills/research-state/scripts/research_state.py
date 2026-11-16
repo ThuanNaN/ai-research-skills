@@ -131,10 +131,13 @@ def main(argv=None):
         if args.command != "init" and not paths.research_dir(root).is_dir():
             raise ValueError(f"no research/ directory in {root}; run the init command first")
         args.func(root, args)
-        status.write(root)
     except (ValueError, FileNotFoundError, RulesError, OSError) as exc:
         print(f"research-state: {' '.join(str(exc).split())}", file=sys.stderr)
         return 1
+    try:
+        status.write(root)
+    except Exception as exc:  # the command itself succeeded; do not invite a retry
+        print(f"research-state: recorded, but STATUS.md could not be refreshed ({exc})", file=sys.stderr)
     return 0
 
 

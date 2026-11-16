@@ -96,7 +96,7 @@ def sections(root, now=None):
 
     out.append(("Recent decisions", [f"- {d}" for d in decisions.recent(root, 5)]))
 
-    done = [(run.get("updated") or "", run_id, run) for run_id, run in all_runs.items() if run.get("status") in DONE]
+    done = [(str(run.get("updated") or ""), run_id, run) for run_id, run in all_runs.items() if run.get("status") in DONE]
     finished = []
     for _, run_id, run in sorted(done, key=lambda item: item[0], reverse=True)[:5]:
         metrics = run.get("metrics")
@@ -158,8 +158,11 @@ def session_context(root, limit=9000, now=None):
     now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     head = f"# Research project state (research/) — generated {now.strftime('%Y-%m-%d %H:%M')} UTC"
     rules_block = _rules_block(root)
-    parts = sections(root, now)
     omitted = []
+    try:
+        parts = sections(root, now)
+    except Exception as exc:  # the rules must still reach the session
+        parts = [("Warnings", [f"- status could not be built ({type(exc).__name__}: {exc}); read research/ directly"])]
 
     def assemble():
         blocks = [head, rules_block]

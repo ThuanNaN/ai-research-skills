@@ -20,10 +20,15 @@ def main():
         return 0
     try:
         from rstate import status
-        status.write(root)
-        emit(status.session_context(root))
+        context = status.session_context(root)
     except Exception as exc:  # a broken status must never block the session
         emit(f"research-state: could not build status ({type(exc).__name__}: {exc}). Read research/ directly.")
+        return 0
+    try:
+        status.write(root)
+    except Exception:  # STATUS.md is a convenience; the context matters more
+        pass
+    emit(context)
     return 0
 
 

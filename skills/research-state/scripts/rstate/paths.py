@@ -17,26 +17,46 @@ def research_dir(root):
     return Path(root) / RESEARCH
 
 
-def find_root(start):
-    """Nearest ancestor holding research/; else the git toplevel; else start."""
-    start = Path(start).resolve()
+def _git_toplevel(start):
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"], cwd=str(start),
+            capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if out.returncode == 0 and out.stdout.strip():
+        return Path(os.path.realpath(out.stdout.strip()))
+    return None
+
+
+def locate(start):
+    """The project holding research/ for a directory, or None.
+
+    The search goes up from start but never above the git toplevel, and
+    outside a git repo it looks only at start itself: an unrelated
+    `research/` folder higher up (say ~/research) is not this project's state.
+    """
+    start = Path(os.path.realpath(str(start)))
+    top = _git_toplevel(start) if start.is_dir() else None
+    if top is None:
+        return start if (start / RESEARCH).is_dir() else None
     for candidate in (start, *start.parents):
         if (candidate / RESEARCH).is_dir():
             return candidate
-    try:
-        out = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"], cwd=start,
-            capture_output=True, text=True, timeout=10)
-        if out.returncode == 0 and out.stdout.strip():
-            return Path(out.stdout.strip())
-    except (OSError, subprocess.SubprocessError):
-        pass
-    return start
+        if candidate == top:
+            break
+    return None
+
+
+def find_root(start):
+    """Project root for the CLI: where research/ is, else the git toplevel, else start."""
+    start = Path(os.path.realpath(str(start)))
+    return locate(start) or _git_toplevel(start) or start
 
 
 def resolve(p, cwd):
     """Absolute, symlink-free form of a path written relative to cwd."""
-    p = os.path.expanduser(str(p))
+    p = os.path.expanduser(str(p).replace("\0", ""))  # a NUL would make every path call raise
     if not os.path.isabs(p):
         p = os.path.join(str(cwd), p)
     return Path(os.path.realpath(p))
@@ -63,19 +83,56 @@ def _glob_to_regex(pattern):
     return re.compile("".join(out))
 
 
+_GLOB_CHARS = set("*?[")
+
+
+def _absolute(pattern, root):
+    pattern = os.path.expanduser(pattern)
+    if not os.path.isabs(pattern):
+        pattern = os.path.join(os.path.realpath(str(root)), pattern)
+    return pattern.rstrip("/") or "/"
+
+
+def literal_prefix(pattern, root):
+    """The directory part of a pattern that contains no glob characters."""
+    parts = Path(_absolute(pattern, root)).parts
+    keep = []
+    for part in parts:
+        if _GLOB_CHARS & set(part):
+            break
+        keep.append(part)
+    return Path(os.path.realpath(os.path.join(*keep))) if keep else Path("/")
+
+
+def _variants(pattern, root):
+    """The pattern as written and with its literal prefix resolved through symlinks."""
+    absolute = _absolute(pattern, root)
+    parts = Path(absolute).parts
+    literal = []
+    for part in parts:
+        if _GLOB_CHARS & set(part):
+            break
+        literal.append(part)
+    rest = parts[len(literal):]
+    out = {absolute}
+    if literal:
+        real = os.path.realpath(os.path.join(*literal))
+        out.add(os.path.join(real, *rest) if rest else real)
+    return out
+
+
 def matches(path, pattern, root):
     """True if pattern matches path or one of its ancestor directories.
 
     Relative patterns are relative to root. `**` crosses `/`; `*` and `?` do
-    not. A trailing `/**` also matches the directory itself.
+    not. A trailing `/**` also matches the directory itself. Symlinks in the
+    path and in the pattern's literal prefix are resolved.
     """
-    pattern = os.path.expanduser(pattern)
-    if not os.path.isabs(pattern):
-        pattern = os.path.join(os.path.realpath(str(root)), pattern)
-    pattern = pattern.rstrip("/") or "/"
-    regexes = [_glob_to_regex(pattern)]
-    if pattern.endswith("/**"):
-        regexes.append(_glob_to_regex(pattern[:-3]))
+    regexes = []
+    for variant in _variants(pattern, root):
+        regexes.append(_glob_to_regex(variant))
+        if variant.endswith("/**"):
+            regexes.append(_glob_to_regex(variant[:-3]))
     path = Path(os.path.realpath(str(path)))
     for candidate in (path, *path.parents):
         text = str(candidate)

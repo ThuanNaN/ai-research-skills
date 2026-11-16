@@ -44,7 +44,8 @@ def _parse(text):
         except ValueError:
             bad += 1
             continue
-        if isinstance(rec, dict) and isinstance(rec.get("run_id"), str) and rec.get("event") in EVENTS:
+        if (isinstance(rec, dict) and isinstance(rec.get("run_id"), str)
+                and isinstance(rec.get("ts"), str) and rec.get("event") in EVENTS):
             records.append(rec)
         else:
             bad += 1

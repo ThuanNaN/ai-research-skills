@@ -30,7 +30,8 @@ def test_session_start_reports_instead_of_crashing(project):
     (project / "research/questions.md").mkdir()  # a directory where a file should be
     out = run_hook("session_start.py", {"source": "startup", "cwd": str(project)}, project)
     assert out.returncode == 0
-    assert "could not build status" in json.loads(out.stdout)["hookSpecificOutput"]["additionalContext"]
+    ctx = json.loads(out.stdout)["hookSpecificOutput"]["additionalContext"]
+    assert "status could not be built" in ctx and "Standing rules" in ctx
 
 
 def test_pre_tool_use_outputs(project):
@@ -58,4 +59,4 @@ def test_hooks_json_is_valid():
     cfg = json.load(open("hooks/hooks.json"))["hooks"]
     assert cfg["PreToolUse"][0]["hooks"][0]["onFailure"] == "block"
     assert set(cfg["SessionStart"][0]["matcher"].split("|")) == {"startup", "resume", "clear", "compact"}
-    assert set(cfg["PreToolUse"][0]["matcher"].split("|")) == {"Write", "Edit", "NotebookEdit", "Bash"}
+    assert set(cfg["PreToolUse"][0]["matcher"].split("|")) == {"Write", "Edit", "MultiEdit", "NotebookEdit", "Bash"}

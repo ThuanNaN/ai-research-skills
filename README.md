@@ -15,6 +15,7 @@ what comes next.
 
 - Claude Code
 - Python 3.9 or later on `PATH` as `python3` (standard library only)
+- Linux or macOS (file locking uses `fcntl`)
 
 ## Install
 
@@ -75,8 +76,14 @@ that fired. To turn enforcement off for a project, set `enforce: false`.
 ## Limitations
 
 - Bash matching is best effort. The guard reads the command line, not what a
-  program does: a Python script can still open or overwrite a protected file.
-  For OS-level enforcement, use the Claude Code sandbox as well.
+  program does. It follows `cd`, newlines, `if`/`for` blocks, `bash -c`,
+  `eval`, `xargs`, `timeout`, redirects, globs that match files on this
+  machine, directory-level `rm`/`mv`, and `git checkout/restore/rm/mv/clean`.
+  It does not see a file opened by a script (`python -c`, `perl -i`, `patch`),
+  names that arrive on stdin (`... | xargs rm`), or `find -delete`. For
+  OS-level enforcement, use the Claude Code sandbox as well.
+- A pattern such as `out/step*/**` also covers a step directory that does not
+  exist yet. Protect finished outputs by name if new ones should stay writable.
 - A command wrapped in `ssh host "…"` is inspected as text; relative paths in
   it are resolved against the local directory.
 - The eval-only check sees only the command line. A training config file that
