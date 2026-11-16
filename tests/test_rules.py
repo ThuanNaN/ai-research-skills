@@ -25,3 +25,9 @@ def test_malformed_front_matter_raises(project, fm):
     (project / "research/rules.md").write_text("---\n" + fm + closing)
     with pytest.raises(RulesError):
         load(project)
+
+
+def test_invalid_training_regex_is_a_rules_error(project):
+    (project / "research/rules.md").write_text('---\ntrain_command_patterns:\n  - "train(\\\\.py"\n---\n')
+    with pytest.raises(RulesError):
+        load(project)

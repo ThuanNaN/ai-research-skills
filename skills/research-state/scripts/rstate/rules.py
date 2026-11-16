@@ -1,5 +1,6 @@
 """Parser for research/rules.md: enforced front matter plus prose."""
 import json
+import re
 from dataclasses import dataclass, field
 
 from . import paths
@@ -86,6 +87,11 @@ def parse(text):
             setattr(rules, key, int(word))
         else:
             raise RulesError(f"line {lineno}: unknown key {key!r}")
+    for pattern in rules.train_command_patterns:
+        try:
+            re.compile(pattern)
+        except re.error as exc:
+            raise RulesError(f"train_command_patterns: {pattern!r} is not a valid regular expression ({exc})") from None
     return rules
 
 
