@@ -3,5 +3,6 @@
   "version": "0.1.0",
   "description": "Skills and hooks for AI/ML research with a coding agent: project state that survives sessions, enforced evidence rules.",
   "author": { "name": "ThuanNaN" },
-  "repository": "https://github.com/ThuanNaN/ai-research-skills"
+  "repository": "https://github.com/ThuanNaN/ai-research-skills",
+  "license": "MIT"
 }

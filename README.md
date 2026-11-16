@@ -111,3 +111,7 @@ python3 -m venv .venv && .venv/bin/pip install pytest
 ```
 
 Design and plan: `docs/superpowers/specs/`, `docs/superpowers/plans/`.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
